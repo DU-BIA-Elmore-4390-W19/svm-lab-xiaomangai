@@ -1,12 +1,30 @@
 ---
 title: "Untitled"
-author: "Your Name Goes Here"
-date: "3/5/2019"
+author: "Yi Liu"
+date: "3/8/2019"
 output: github_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+```
+```{r, include=FALSE}
+library(tidyverse)
+library(broom)
+library(glmnet)
+library(caret)
+library(ISLR)
+library(janitor)
+library(stringr)
+library(rpart)
+library(rpart.plot)
+library(partykit)
+library(randomForest)
+library(MASS)
+library(gbm)
+library(kernlab)
+library(plotROC)
+theme_set(theme_bw())
 ```
 
 1. This question refers to Chapter 9 Problem 8 beginning on page 371 in the 
@@ -14,16 +32,85 @@ text.
 
     a. Create a training sample that has roughly 80% of the observations. Use
   `set.seed(19823)`.
+  
+```{r}
+set.seed(19823)
+df <- tbl_df(OJ)
+inTraining <- createDataPartition(df$Purchase, p = .80, list = F)
+training <- df[inTraining, ]
+testing  <- df[-inTraining, ]
+```
     b. Use the `kernlab` package to fit a support vector classifier to the 
   training data using `C = 0.01`. 
+  
+```{r}
+OJ_svc <- ksvm(Purchase ~ ., data = training,
+               type = "C-svc", 
+               kernel = 'vanilladot',
+               C = 0.01,
+               prob.model = TRUE)
+```
     c. Compute the confusion matrix for the training data. Report the overall 
   error rates, sensitivity, and specificity. 
+  
+```{r}
+confusionMatrix(table(predict(OJ_svc, newdata = testing), testing$Purchase), positive = "MM")
+```
+   
     d. Construct the ROC curve. 
+```{r}
+fits_svc <- predict(OJ_svc, newdata = training, type = "probabilities")
+svc_pred <- mutate(training, 
+                   svc_probs = fits_svc[, 2],
+                   default = if_else(Purchase == "MM", 1, 0))
+p <- ggplot(data = svc_pred, aes(d = default, m = svc_probs))
+p + geom_roc(n.cuts = 0, col = "navy") + style_roc()
+```
     e. Use the `train` function from the `caret` package to find an optimal cost
   parameter (`C`) in the range 0.01 to 10. Use `seq(0.01, 10, len = 20)`. 
+  
+```{r}
+fit_control <- trainControl(method = "repeatedcv",
+                            number = 10, 
+                            repeats = 3)
+OJ_train <- train(Purchase ~ ., data = training,
+                  method = "svmLinear", 
+                  trControl = fit_control,
+                  tuneGrid = data.frame(C = seq(0.01, 10, len=20)))
+```
     f. Compute the training and test classification error.
+    
+```{r}
+confusionMatrix(table(predict(OJ_train, newdata = training), training$Purchase), positive = "MM")
+confusionMatrix(table(predict(OJ_train, newdata = testing), testing$Purchase), positive = "MM")
+```
+
     g. Repeat (b) - (d) using an SVM with a polynomial kernel with degree 2. 
+    
+```{r}
+OJ_svc_poly <- ksvm(Purchase ~ ., data = training,
+               type = "C-svc", 
+               kernel = 'polydot',
+               kpar = list(degree = 2, scale = .1),
+               C = 1,
+               prob.model = TRUE)
+fits_svm_d2 <- predict(OJ_svc_poly, newdata = training, 
+                       type = "probabilities")
+svc_pred_d2 <- mutate(svc_pred, svc_probs_d2 = fits_svm_d2[, 2])
+confusionMatrix(table(predict(OJ_svc_poly, newdata = testing), testing$Purchase), positive = "MM")
+svc_pred_d2 <- mutate(svc_pred, svc_probs_d2 = fits_svm_d2[, 2])
+fits_svc_poly <- predict(OJ_svc_poly, newdata = training, type = "probabilities")
+svc_pred_poly <- mutate(svc_pred, 
+                   svc_probs_poly = fits_svc_poly[, 2])
+p <- ggplot(data = svc_pred_poly, aes(d = default, m = svc_probs))
+p + geom_roc(n.cuts = 0, col = "navy") + 
+  geom_roc(aes(d = default, m = svc_probs_poly), n.cuts = 0, col = "green") +
+  style_roc()
+```
+
+
     h. Which method would you choose?
+
     i. Repeat (b) - (d) using an SVM with a radial basis kernel. Train it. 
     j. Using the best models from LDA, SVC, SVM (poly), and SVM (radial), 
     compute the test error. 
